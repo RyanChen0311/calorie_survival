@@ -46,10 +46,9 @@ export default function StatusBar() {
         <motion.button
           whileTap={{ scale: 0.85 }}
           onClick={() => setConfirm(true)}
-          className="ml-1 text-white/30 hover:text-white/60 text-[14px] leading-none"
-          title="重新開始"
+          className="ml-1 px-2 py-0.5 rounded-md bg-white/10 text-white/60 text-[11px] font-medium shrink-0"
         >
-          ↩
+          重來
         </motion.button>
       </div>
 
