@@ -86,7 +86,7 @@ export const config: GameConfig = {
 /** 從 /game-config.json 載入遠端設定，原地覆寫 config 物件。失敗則靜默使用預設值。 */
 export async function loadRemoteConfig(): Promise<void> {
   try {
-    const res = await fetch('/game-config.json')
+    const res = await fetch(import.meta.env.BASE_URL + 'game-config.json')
     if (!res.ok) return
     const remote: Partial<GameConfig> = await res.json()
     if (remote.drinks)              config.drinks.splice(0, Infinity, ...remote.drinks)
