@@ -26,8 +26,9 @@ export default function ResultScreen() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="flex flex-col flex-1 overflow-y-auto px-4 py-6 gap-5"
+      className="flex flex-col flex-1 min-h-0"
     >
+      <div className="flex-1 overflow-y-auto px-4 py-6 gap-5 flex flex-col">
       <div className="text-center">
         <div className="text-white/50 text-xs mb-1">7 天挑戰完成</div>
         <h2 className="text-lg font-bold text-white">最終結算報告</h2>
@@ -115,13 +116,14 @@ export default function ResultScreen() {
           </tbody>
         </table>
       </motion.div>
+      </div>
 
       {/* 按鈕 */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 2.6 }}
-        className="flex gap-3 pb-4"
+        className="flex gap-3 px-4 py-3"
       >
         <motion.button whileTap={{ scale: 0.95 }} onClick={restartGame}
           className="flex-1 bg-green-500 text-black font-bold py-3 rounded-xl text-sm">
