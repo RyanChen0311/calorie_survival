@@ -2,7 +2,7 @@
 
 **S 曲線人生計畫** — 同時管理金錢、卡路里、體力、體重的 7 天生存策略遊戲。
 
-🎮 **[線上遊玩](https://ryanchen0311.github.io/Calorie_Survival/)**
+🎮 **[線上遊玩](https://ryanchen0311.github.io/calorie_survival/)**
 
 ---
 
