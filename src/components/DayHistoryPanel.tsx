@@ -1,25 +1,34 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useGameStore } from '../store/gameStore'
+import { START_WEIGHT_KG, TOTAL_DAYS } from '../config/constants'
+import { sfx } from '../audio/sfx'
 
 export default function DayHistoryPanel() {
-  const { dayRecords, current } = useGameStore()
+  // 個別 selector：current 內的金錢 / 體力變動不必重算紀錄
+  const dayRecords = useGameStore(s => s.dayRecords)
+  const inGame     = useGameStore(s => s.current !== null)
   const [open, setOpen] = useState(false)
 
-  // 只在遊戲進行中且有歷史記錄時顯示
-  const records = dayRecords.filter(r => r.day > 0)
-  if (!current || records.length === 0) return null
+  // 只在遊戲進行中且有歷史記錄時顯示（day 0 為初始狀態）
+  const records = useMemo(() => dayRecords.filter(r => r.day > 0), [dayRecords])
+  if (!inGame || records.length === 0) return null
+
+  const toggle = () => {
+    sfx.play('tap')
+    setOpen(v => !v)
+  }
 
   return (
     <div className="w-full">
       {/* 開關按鈕 */}
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={toggle}
         className="w-full flex items-center justify-between px-4 py-2
                    bg-[#071e18] border-t border-white/10 text-xs text-white/40
                    active:bg-white/5 transition-colors"
       >
-        <span>📋 歷史記錄（{records.length} / 7 天）</span>
+        <span>📋 歷史記錄（{records.length} / {TOTAL_DAYS} 天）</span>
         <motion.span
           animate={{ rotate: open ? 180 : 0 }}
           transition={{ duration: 0.2 }}
@@ -52,9 +61,10 @@ export default function DayHistoryPanel() {
                 </thead>
                 <tbody>
                   {records.map((r, i) => {
-                    const prev = i === 0 ? null : records[i - 1]
-                    const weightUp   = prev && r.weight > prev.weight
-                    const weightDown = prev && r.weight < prev.weight
+                    // D1 與初始體重比較，之後與前一天比較
+                    const prevWeight = i === 0 ? START_WEIGHT_KG : records[i - 1].weight
+                    const weightUp   = r.weight > prevWeight
+                    const weightDown = r.weight < prevWeight
 
                     return (
                       <tr key={r.day} className="border-t border-white/5">
@@ -63,7 +73,6 @@ export default function DayHistoryPanel() {
 
                         {/* 金錢 */}
                         <td className={`py-1.5 px-2 text-right tabular-nums font-bold ${
-                          r.money < 0   ? 'text-red-400 animate-pulse' :
                           r.money < 200 ? 'text-yellow-400' : 'text-green-300'
                         }`}>
                           ${r.money.toLocaleString()}
@@ -107,7 +116,6 @@ export default function DayHistoryPanel() {
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 px-3 py-1.5
                             text-[9px] text-white/25 border-t border-white/5">
               <span><span className="text-yellow-400">金</span> &lt;$200</span>
-              <span><span className="text-red-400">金</span> &lt;$0 破產</span>
               <span><span className="text-red-400">kcal</span> &gt;500 高危</span>
               <span><span className="text-red-400">🔺</span> 體重上升</span>
             </div>

@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useGameStore } from '../store/gameStore'
+import { TOTAL_DAYS } from '../config/constants'
+import { sfx } from '../audio/sfx'
+import SoundToggle from './SoundToggle'
 
 function AnimatedValue({ value, className = '' }: { value: string | number; className?: string }) {
   return (
@@ -25,7 +28,17 @@ export default function StatusBar() {
 
   const { day, money, excessCalories, weight } = current
 
-  const moneyClass = money < 0 ? 'text-red-400' : money < 200 ? 'text-yellow-400' : 'text-green-400'
+  const openConfirm = (open: boolean) => {
+    sfx.play('tap')
+    setConfirm(open)
+  }
+  const handleRestart = () => {
+    sfx.play('tap')
+    restartGame()
+  }
+
+  // 金錢不會為負（強制消費扣款前已判定破產），只需區分低餘額
+  const moneyClass = money < 200 ? 'text-yellow-400' : 'text-green-400'
   const calClass   = excessCalories > 500 ? 'text-orange-400' : excessCalories < 0 ? 'text-green-400' : 'text-white'
   const weightClass = weight > 65 ? 'text-orange-400' : weight < 58 ? 'text-green-400' : 'text-white'
 
@@ -34,19 +47,21 @@ export default function StatusBar() {
       {/* Day 進度條 */}
       <div className="flex items-center gap-2 px-3 pt-2 pb-1">
         <span className="text-white/40 text-[10px]">DAY</span>
-        {Array.from({ length: 7 }, (_, i) => (
+        {/* 已過完的天：綠；今天：黃；未來：灰 */}
+        {Array.from({ length: TOTAL_DAYS }, (_, i) => (
           <div
             key={i}
             className={`flex-1 h-1.5 rounded-full transition-all duration-500 ${
-              i < day ? 'bg-green-400' : i === day - 1 ? 'bg-yellow-400' : 'bg-white/15'
+              i < day - 1 ? 'bg-green-400' : i === day - 1 ? 'bg-yellow-400' : 'bg-white/15'
             }`}
           />
         ))}
-        <span className="text-white/60 text-[10px]">{day}/7</span>
+        <span className="text-white/60 text-[10px]">{day}/{TOTAL_DAYS}</span>
+        <SoundToggle className="ml-1" />
         <motion.button
           whileTap={{ scale: 0.85 }}
-          onClick={() => setConfirm(true)}
-          className="ml-1 px-2 py-0.5 rounded-md bg-white/10 text-white/60 text-[11px] font-medium shrink-0"
+          onClick={() => openConfirm(true)}
+          className="px-2 py-0.5 rounded-md bg-white/10 text-white/60 text-[11px] font-medium shrink-0"
         >
           重來
         </motion.button>
@@ -78,14 +93,14 @@ export default function StatusBar() {
               <div className="flex gap-3">
                 <motion.button
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => setConfirm(false)}
+                  onClick={() => openConfirm(false)}
                   className="flex-1 py-2.5 rounded-xl bg-white/10 text-white/60 text-sm font-medium"
                 >
                   取消
                 </motion.button>
                 <motion.button
                   whileTap={{ scale: 0.95 }}
-                  onClick={restartGame}
+                  onClick={handleRestart}
                   className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold"
                 >
                   確定重來

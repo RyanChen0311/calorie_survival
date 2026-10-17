@@ -1,8 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useGameStore, ENHANCE_TABLE } from '../../store/gameStore'
+import { useShallow } from 'zustand/react/shallow'
+import { useGameStore, ENHANCE_TABLE, type EnhanceResult } from '../../store/gameStore'
+import { sfx } from '../../audio/sfx'
+import { config } from '../../config'
 
-interface LastResult { success: boolean; newBonus: number }
+const RESULT_POPUP_MS = 300   // 強化結果浮窗顯示時間，也是防連點時間
+
+function LuckyBadge() {
+  const pct = Math.round(config.luckyGame.rateBonus * 100)
+  return (
+    <div className="px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
+      🍀 幸運局：本局每次強化成功率 +{pct}%
+    </div>
+  )
+}
 
 function buildLadder(bonusBase: number) {
   let cumBonus = bonusBase
@@ -13,30 +25,55 @@ function buildLadder(bonusBase: number) {
 }
 
 export default function BonusPhase() {
-  const { current, enhanceBonus, advancePhase } = useGameStore()
+  const { current, luckyGame, enhanceBonus, advancePhase } = useGameStore(useShallow(s => ({
+    current:      s.current,
+    luckyGame:    s.luckyGame,
+    enhanceBonus: s.enhanceBonus,
+    advancePhase: s.advancePhase,
+  })))
   const [revealed,     setRevealed]     = useState(false)
   const [isAnimating,  setIsAnimating]  = useState(false) // 防止連點；不影響按鈕顯示
-  const [lastResult,   setLastResult]   = useState<LastResult | null>(null)
+  const [lastResult,   setLastResult]   = useState<EnhanceResult | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 卸載時清掉計時器，避免對已卸載元件 setState
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+  }, [])
+
+  const bonusBase = current?.bonusBase ?? 0
+  const ladder = useMemo(() => buildLadder(bonusBase), [bonusBase])
 
   if (!current) return null
-  const { bonus, bonusBase, enhanceLv, money } = current
+  const { bonus, enhanceLv, money } = current
 
-  const nextEntry = enhanceLv < ENHANCE_TABLE.length ? ENHANCE_TABLE[enhanceLv] : null
+  const nextEntry = ENHANCE_TABLE[enhanceLv] ?? null
   const canAfford = nextEntry ? money >= nextEntry.cost : false
-  const ladder    = buildLadder(bonusBase)
 
   // 純粹由 store 資料決定，和動畫狀態無關
   const showEnhance = !!nextEntry && bonus > 0
+
+  const handleReveal = () => {
+    sfx.play('reveal')
+    setRevealed(true)
+  }
 
   const handleEnhance = () => {
     if (isAnimating || !nextEntry || !canAfford) return
 
     // 立即執行強化 → store 同步更新 → showEnhance 立刻反映新狀態
     const result = enhanceBonus()
-    setLastResult({ success: result.success, newBonus: result.newBonus })
+    sfx.play(result.success ? 'enhanceSuccess' : 'enhanceFail')
+    setLastResult(result)
 
     setIsAnimating(true)
-    setTimeout(() => setIsAnimating(false), 300)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => setIsAnimating(false), RESULT_POPUP_MS)
+  }
+
+  const handleCollect = () => {
+    sfx.play(bonus > 0 ? 'coin' : 'empty')
+    advancePhase()
   }
 
   // ── 點擊揭曉前 ─────────────────────────────────────────
@@ -50,9 +87,10 @@ export default function BonusPhase() {
         <div className="flex-[2]" />
         <div className="flex flex-col items-center gap-6">
           <div className="text-white/50 text-sm">Day {current.day} — 每日獎金</div>
+          {luckyGame && <LuckyBadge />}
           <motion.button
             whileTap={{ scale: 0.93 }}
-            onClick={() => setRevealed(true)}
+            onClick={handleReveal}
             className="w-40 h-40 rounded-3xl bg-gradient-to-br from-yellow-500 to-orange-600
                        flex flex-col items-center justify-center gap-2 shadow-lg shadow-yellow-700/30"
           >
@@ -97,6 +135,7 @@ export default function BonusPhase() {
       {/* 內容區（不捲動） */}
       <div className="flex-1 overflow-hidden px-4 pt-2 pb-1 flex flex-col gap-2">
         <div className="text-white/50 text-sm text-center">Day {current.day} — 每日獎金</div>
+        {luckyGame && <div className="flex justify-center"><LuckyBadge /></div>}
 
         {/* 當前獎金 */}
         <div className="bg-[#0f2d25] border border-yellow-400/30 rounded-xl p-2.5 text-center">
@@ -112,14 +151,13 @@ export default function BonusPhase() {
               ${bonus.toLocaleString()}
             </motion.div>
           </AnimatePresence>
-          {enhanceLv > 0 && (
+          {enhanceLv > 0 && ENHANCE_TABLE[enhanceLv - 1] && (
             <div className="text-white/30 text-xs mt-0.5">
               原始 ${bonusBase} → 已強化至 {ENHANCE_TABLE[enhanceLv - 1].label}
             </div>
           )}
         </div>
 
-        {/* 強化結果提示（短暫顯示，不阻擋按鈕） */}
         {/* 強化獎金階梯 */}
         <div className="bg-[#0f2d25] border border-white/10 rounded-xl overflow-hidden">
           <div className="text-xs text-white/40 px-3 py-1 bg-white/5 border-b border-white/10 shrink-0">
@@ -150,11 +188,13 @@ export default function BonusPhase() {
         </div>
 
         {enhanceLv >= ENHANCE_TABLE.length && (
-          <div className="text-yellow-400 text-sm font-bold text-center">🏆 已達最高強化等級 +10</div>
+          <div className="text-yellow-400 text-sm font-bold text-center">
+            🏆 已達最高強化等級 {ENHANCE_TABLE[ENHANCE_TABLE.length - 1]?.label}
+          </div>
         )}
 
         {/* 按鈕列：緊接階梯下方，與內容區同 gap-2 */}
-        {showEnhance ? (
+        {showEnhance && nextEntry ? (
           <div className="flex flex-col gap-2">
             <motion.button
               whileTap={canAfford ? { scale: 0.95 } : {}}
@@ -167,12 +207,12 @@ export default function BonusPhase() {
               }`}
             >
               {canAfford
-                ? `💎 強化 ${nextEntry!.label}（$${nextEntry!.cost}）`
-                : `餘額不足 $${nextEntry!.cost}`}
+                ? `💎 強化 ${nextEntry.label}（$${nextEntry.cost}）`
+                : `餘額不足 $${nextEntry.cost}`}
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.95 }}
-              onClick={advancePhase}
+              onClick={handleCollect}
               className="w-full py-3 rounded-xl font-bold text-sm bg-yellow-400 text-black"
             >
               收下 ${bonus.toLocaleString()}
@@ -181,7 +221,7 @@ export default function BonusPhase() {
         ) : (
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={advancePhase}
+            onClick={handleCollect}
             className={`w-full py-3 rounded-xl font-bold text-sm ${
               bonus > 0 ? 'bg-yellow-400 text-black' : 'bg-slate-600 text-white'
             }`}

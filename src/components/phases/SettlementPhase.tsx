@@ -1,22 +1,39 @@
 import { motion } from 'framer-motion'
 import { useGameStore } from '../../store/gameStore'
+import { nextDayWeight, roundWeight } from '../../utils/body'
+import { KCAL_PER_KG, START_WEIGHT_KG, TOTAL_DAYS } from '../../config/constants'
+
+/** +0.6 / -0.4 / ±0.0 */
+const fmtKg = (kg: number) => `${kg > 0 ? '+' : kg < 0 ? '' : '±'}${kg.toFixed(1)}`
+import { sfx } from '../../audio/sfx'
+import { useSfxOnMount } from '../../audio/useSfxOnMount'
+
+const WEIGHT_REVEAL_MS = 300   // 與下方體重數字動畫 delay 對齊
 
 export default function SettlementPhase() {
-  const { current, advancePhase } = useGameStore()
-  if (!current) return null
+  const current      = useGameStore(s => s.current)
+  const advancePhase = useGameStore(s => s.advancePhase)
 
-  const { weight, excessCalories, day, burnedToday, targetCalories } = current
-
-  // 體重預測（store 在 advancePhase 後才真正更新）
-  const weightDelta = excessCalories >= 0
-    ? Math.floor(excessCalories / 500)
-    : -Math.floor(-excessCalories / 500)
-  const newWeight = Math.max(40, weight + weightDelta)
+  // 體重預測（store 在 advancePhase 後才真正更新）；與 store 共用同一個計算函式
+  const netToday    = current ? current.targetCalories - current.burnedToday : 0   // 今日淨值
+  const newWeight   = current ? nextDayWeight(current.weight, netToday) : 0
+  const weightDelta = current ? roundWeight(newWeight - current.weight) : 0       // 與今天相比
   const gained = weightDelta > 0
   const lost   = weightDelta < 0
 
-  // 今日熱量流向
-  const netToday = targetCalories - burnedToday
+  // hook 必須在 early return 之前呼叫
+  useSfxOnMount(current ? (gained ? 'weightUp' : lost ? 'weightDown' : 'weightSame') : null, WEIGHT_REVEAL_MS)
+
+  if (!current) return null
+
+  const { excessCalories, day, burnedToday, targetCalories } = current
+  const totalDelta = roundWeight(newWeight - START_WEIGHT_KG)   // 相對初始體重
+  const isLastDay  = day >= TOTAL_DAYS
+
+  const handleNext = () => {
+    sfx.play(isLastDay ? 'tap' : 'nextDay')
+    advancePhase()
+  }
 
   return (
     <motion.div
@@ -37,8 +54,8 @@ export default function SettlementPhase() {
                valueClass={burnedToday > 0 ? 'text-green-400' : 'text-white/30'} />
           <Row label="📊 今日淨值" value={`${netToday >= 0 ? '+' : ''}${netToday} kcal`}
                valueClass={netToday > 0 ? 'text-orange-400' : 'text-green-400'} />
-          <Row label="📦 累積熱量" value={`${excessCalories >= 0 ? '+' : ''}${excessCalories} kcal`}
-               valueClass={excessCalories >= 500 ? 'text-red-400' : excessCalories < 0 ? 'text-green-400' : 'text-white/60'} />
+          <Row label="📦 總累積熱量" value={`${excessCalories >= 0 ? '+' : ''}${excessCalories} kcal`}
+               valueClass={excessCalories >= KCAL_PER_KG ? 'text-red-400' : excessCalories < 0 ? 'text-green-400' : 'text-white/60'} />
         </div>
       </div>
 
@@ -69,16 +86,20 @@ export default function SettlementPhase() {
           className="mt-2 text-sm"
         >
           {gained ? (
-            <span className="text-red-400">🔺 +{weightDelta} kg　累積熱量超過閾值！</span>
+            <span className="text-red-400">🔺 {fmtKg(weightDelta)} kg　今日熱量盈餘！</span>
           ) : lost ? (
-            <span className="text-green-400">🔻 {weightDelta} kg　燃燒有成！</span>
+            <span className="text-green-400">🔻 {fmtKg(weightDelta)} kg　燃燒有成！</span>
           ) : (
-            <span className="text-white/40">體重維持（累積 &lt; 500 kcal）</span>
+            <span className="text-white/40">體重與今天相同</span>
           )}
         </motion.div>
 
+        <div className="text-[11px] text-white/40 mt-1">
+          相對初始 {START_WEIGHT_KG} kg：{fmtKg(totalDelta)} kg
+        </div>
+
         <div className="text-[10px] text-white/20 mt-2">
-          每累積 ±500 kcal → 體重 ±1 kg
+          今日淨值每 ±{KCAL_PER_KG} kcal → 體重 ±1 kg（取到 0.1 kg）
         </div>
       </motion.div>
 
@@ -87,12 +108,12 @@ export default function SettlementPhase() {
         animate={{ opacity: 1 }}
         transition={{ delay: 0.6 }}
         whileTap={{ scale: 0.95 }}
-        onClick={advancePhase}
+        onClick={handleNext}
         className={`w-full font-bold py-3.5 rounded-xl text-sm ${
-          day >= 7 ? 'bg-yellow-400 text-black' : 'bg-indigo-600 text-white'
+          isLastDay ? 'bg-yellow-400 text-black' : 'bg-indigo-600 text-white'
         }`}
       >
-        {day >= 7 ? '🏆 進入最終結算！' : `進入 Day ${day + 1} →`}
+        {isLastDay ? '🏆 進入最終結算！' : `進入 Day ${day + 1} →`}
       </motion.button>
     </motion.div>
   )

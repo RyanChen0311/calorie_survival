@@ -1,8 +1,16 @@
 import { motion } from 'framer-motion'
 import { useGameStore } from '../store/gameStore'
+import { sfx } from '../audio/sfx'
+import { useSfxOnMount } from '../audio/useSfxOnMount'
 
 export default function GameOverScreen() {
   const restartGame = useGameStore(s => s.restartGame)
+  useSfxOnMount('gameOver', 150)   // 配合 💸 彈出動畫
+
+  const handleRestart = () => {
+    sfx.play('tap')
+    restartGame()
+  }
 
   return (
     <motion.div
@@ -51,7 +59,7 @@ export default function GameOverScreen() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.9 }}
         whileTap={{ scale: 0.95 }}
-        onClick={restartGame}
+        onClick={handleRestart}
         className="w-full max-w-xs bg-green-500 text-black font-bold py-4 rounded-2xl text-base"
       >
         再戰一回 →

@@ -1,13 +1,32 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useGameStore } from '../../store/gameStore'
+import { logger } from '../../utils/logger'
+import { sfx } from '../../audio/sfx'
 
 export default function DrinkPhase() {
-  const { current, advancePhase } = useGameStore()
+  const current      = useGameStore(s => s.current)
+  const advancePhase = useGameStore(s => s.advancePhase)
   const [revealed, setRevealed] = useState(false)
 
-  if (!current || !current.drinkCombo || !current.drinkConstraints) return null
+  if (!current) return null
   const { drinkCombo, drinkConstraints, targetCalories } = current
+  if (!drinkCombo || !drinkConstraints) {
+    // 正常流程不會發生；若發生代表存檔或 initDay 有問題
+    logger.error('DrinkPhase', 'drinkCombo / drinkConstraints 為 null', current)
+    return null
+  }
+
+  const handleReveal = () => {
+    sfx.play('drinkReveal')
+    setRevealed(true)
+  }
+
+  const handlePay = () => {
+    // 付不起時改由 GameOverScreen 播放破產音效，這裡不疊收銀機聲
+    if (current.money >= drinkCombo.totalPrice) sfx.play('pay')
+    advancePhase()
+  }
 
   // 熱量顏色
   const calColor = targetCalories >= 600 ? 'text-red-400' : targetCalories >= 500 ? 'text-orange-400' : 'text-yellow-400'
@@ -25,7 +44,7 @@ export default function DrinkPhase() {
           <div className="text-white/50 text-xs">黑心飲料店來了</div>
           <motion.button
             whileTap={{ scale: 0.93 }}
-            onClick={() => setRevealed(true)}
+            onClick={handleReveal}
             className="w-44 h-44 rounded-3xl bg-gradient-to-br from-red-700 to-rose-900
                        flex flex-col items-center justify-center gap-2 shadow-lg shadow-red-900/40"
           >
@@ -110,7 +129,7 @@ export default function DrinkPhase() {
         animate={{ opacity: 1 }}
         transition={{ delay: 0.4 }}
         whileTap={{ scale: 0.95 }}
-        onClick={advancePhase}
+        onClick={handlePay}
         className="w-full bg-red-600 text-white font-bold py-3 rounded-xl text-sm"
       >
         強制扣款 -${drinkCombo.totalPrice} →

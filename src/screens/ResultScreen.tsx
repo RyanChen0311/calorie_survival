@@ -1,26 +1,80 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { useGameStore } from '../store/gameStore'
-import { calcScore, getRankInfo } from '../utils/scoring'
+import { useShallow } from 'zustand/react/shallow'
+import { useGameStore, type Difficulty } from '../store/gameStore'
+import { calcScore, getRankInfo, type Rank } from '../utils/scoring'
+import { START_WEIGHT_KG } from '../config/constants'
+import { roundWeight } from '../utils/body'
+import { logger } from '../utils/logger'
+import { sfx } from '../audio/sfx'
+import { useSfxOnMount } from '../audio/useSfxOnMount'
+
+// 動畫時間軸（秒）：音效與動畫共用，改一處即可同步
+const T_STAMP = 2.0
+
+const DIFF_LABEL: Record<Difficulty, string> = { easy: '簡單', normal: '普通', hard: '困難' }
+
+const SCORE_COLOR_BY_RANK: Record<Rank, string> = {
+  S: 'text-yellow-400',
+  A: 'text-sky-400',
+  B: 'text-white',
+  C: 'text-red-400',
+}
+
+/** 複製文字到剪貼簿；回傳是否成功（舊瀏覽器 / 非 HTTPS 沒有 clipboard API） */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (!navigator.clipboard) return false
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch (err) {
+    logger.warn('share', '複製到剪貼簿失敗', err)
+    return false
+  }
+}
 
 export default function ResultScreen() {
-  const { dayRecords, difficulty, restartGame } = useGameStore()
+  const { dayRecords, difficulty, restartGame } = useGameStore(useShallow(s => ({
+    dayRecords:  s.dayRecords,
+    difficulty:  s.difficulty,
+    restartGame: s.restartGame,
+  })))
+  const [shareMsg, setShareMsg] = useState<string | null>(null)
+
+  useSfxOnMount('victory', 100)
+  useSfxOnMount('stamp', T_STAMP * 1000)
+
   const last = dayRecords[dayRecords.length - 1]
   if (!last) return null
 
   const { money, weight } = last
+  const diff         = difficulty ?? 'normal'
   const moneyBonus   = Math.round(money * 1.5)
-  const weightDelta  = weight - 60
-  const weightPenalty = weightDelta * 500
+  const weightDelta  = roundWeight(weight - START_WEIGHT_KG)   // 體重為小數，先消除浮點誤差
+  const weightPenalty = Math.round(weightDelta * 500)
   const score = calcScore(money, weight)
-  const rank  = getRankInfo(score, difficulty ?? 'normal')
+  const rank  = getRankInfo(score, diff)
 
-  const diffLabel = difficulty === 'easy' ? '簡單' : difficulty === 'normal' ? '普通' : '困難'
-
-  const handleShare = () => {
-    const text = `我在 Calorie Survival（${diffLabel}模式）活過了7天！獲得${rank.label}【${rank.description}】評價！得分：${score}`
-    navigator.clipboard.writeText(text).catch(() => {})
-    alert('已複製到剪貼簿！')
+  const handleRestart = () => {
+    sfx.play('tap')
+    restartGame()
   }
+
+  const handleShare = async () => {
+    sfx.play('tap')
+    const text = `我在 Calorie Survival（${DIFF_LABEL[diff]}模式）活過了7天！獲得${rank.label}【${rank.description}】評價！得分：${score}`
+    const ok = await copyText(text)
+    setShareMsg(ok ? '已複製到剪貼簿！' : '無法自動複製，請手動截圖分享')
+  }
+
+  // 分數顏色跟隨評級（評級門檻依難度不同，見 config.scoring）
+  const scoreColor = SCORE_COLOR_BY_RANK[rank.rank]
+
+  // 體重 ±0 時顯示「體重持平」，避免出現「懲罰 -0」
+  const weightLine =
+    weightDelta > 0 ? { label: '體重增幅懲罰', value: `-${weightPenalty.toLocaleString()}`,           color: 'text-red-400' } :
+    weightDelta < 0 ? { label: '體重減少獎勵', value: `+${Math.abs(weightPenalty).toLocaleString()}`, color: 'text-green-400' } :
+                      { label: '體重持平',     value: '±0',                                          color: 'text-white/70' }
 
   return (
     <motion.div
@@ -44,10 +98,10 @@ export default function ResultScreen() {
           delay={0.3}
         />
         <ScoreLine
-          label={weightDelta >= 0 ? '體重增幅懲罰' : '體重減少獎勵'}
-          formula={`(${weight.toFixed(1)} − 60) kg × 500`}
-          value={weightPenalty >= 0 ? `-${weightPenalty.toLocaleString()}` : `+${Math.abs(weightPenalty).toLocaleString()}`}
-          color={weightPenalty > 0 ? 'text-red-400' : 'text-green-400'}
+          label={weightLine.label}
+          formula={`(${weight.toFixed(1)} − ${START_WEIGHT_KG}) kg × 500`}
+          value={weightLine.value}
+          color={weightLine.color}
           delay={0.9}
         />
         <motion.div
@@ -57,9 +111,7 @@ export default function ResultScreen() {
           className="flex items-center justify-between px-4 py-3 bg-white/5 border-t border-white/20"
         >
           <span className="font-bold text-white text-base">TOTAL SCORE</span>
-          <span className={`text-3xl font-bold ${
-            score >= 5000 ? 'text-yellow-400' : score >= 2000 ? 'text-sky-400' : score >= 500 ? 'text-white' : 'text-red-400'
-          }`}>
+          <span className={`text-3xl font-bold ${scoreColor}`}>
             {score.toLocaleString()}
           </span>
         </motion.div>
@@ -69,7 +121,7 @@ export default function ResultScreen() {
       <motion.div
         initial={{ scale: 3, opacity: 0, rotate: -20 }}
         animate={{ scale: 1, opacity: 1, rotate: 0 }}
-        transition={{ delay: 2.0, type: 'spring', stiffness: 250, damping: 15 }}
+        transition={{ delay: T_STAMP, type: 'spring', stiffness: 250, damping: 15 }}
         className="shrink-0 flex flex-row items-center justify-center gap-3"
       >
         <div className="text-5xl">{rank.emoji}</div>
@@ -121,6 +173,11 @@ export default function ResultScreen() {
         </div>
       </motion.div>
 
+      {/* 分享結果提示 */}
+      {shareMsg && (
+        <div className="shrink-0 text-center text-xs text-white/60">{shareMsg}</div>
+      )}
+
       {/* 按鈕 — shrink-0 讓它永遠在底部 */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -128,7 +185,7 @@ export default function ResultScreen() {
         transition={{ delay: 2.6 }}
         className="shrink-0 flex gap-3"
       >
-        <motion.button whileTap={{ scale: 0.95 }} onClick={restartGame}
+        <motion.button whileTap={{ scale: 0.95 }} onClick={handleRestart}
           className="flex-1 bg-green-500 text-black font-bold py-3 rounded-xl text-sm">
           再戰一回
         </motion.button>

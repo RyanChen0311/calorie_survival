@@ -1,4 +1,6 @@
-import { config } from '../config'
+import { config, type EquipmentItem, type ExerciseConfig } from '../config'
+import { EXERCISES_PER_DAY } from '../config/constants'
+import { sample } from '../utils/random'
 export type { EquipmentItem, EquipmentTier, ExerciseConfig as ExerciseType } from '../config'
 
 // 預設資料：啟動時填入 config.exercises（若遠端有覆寫則以遠端為準）
@@ -257,27 +259,42 @@ if (config.exercises.length === 0) {
 
 export const EXERCISE_TYPES = config.exercises
 
-export function getRequiredEquipment(ex: { equipmentTiers: { requiredCount: number; items: { id: string; name: string; emoji: string; cost: number }[] }[] }, count: number) {
+export type ExerciseTriple = [ExerciseConfig, ExerciseConfig, ExerciseConfig]
+
+/** 依累計次數，列出目前階段需要的全部裝備 */
+export function getRequiredEquipment(ex: ExerciseConfig, count: number): EquipmentItem[] {
   return ex.equipmentTiers
     .filter(tier => count >= tier.requiredCount)
     .flatMap(tier => tier.items)
 }
 
+// 效率分段：0–30 全效、31–60 七折、61+ 五折
+const ZONE_HIGH_END = 30
+const ZONE_MID_END  = 60
+const ZONE_MID_RATE = 0.7
+const ZONE_LOW_RATE = 0.5
+
 export function calcExerciseCalories(ex: { k: number; b: number }, x: number): number {
-  if (x <= 0) return 0
-  const t1 = Math.min(x, 30)
-  const t2 = Math.max(0, Math.min(x - 30, 30))
-  const t3 = Math.max(0, x - 60)
-  return Math.round(t1 * ex.k + t2 * ex.k * 0.7 + t3 * ex.k * 0.5 + ex.b)
+  if (!Number.isFinite(x) || x <= 0) return 0
+  const t1 = Math.min(x, ZONE_HIGH_END)
+  const t2 = Math.max(0, Math.min(x - ZONE_HIGH_END, ZONE_MID_END - ZONE_HIGH_END))
+  const t3 = Math.max(0, x - ZONE_MID_END)
+  return Math.round(t1 * ex.k + t2 * ex.k * ZONE_MID_RATE + t3 * ex.k * ZONE_LOW_RATE + ex.b)
 }
 
-export function getEfficiencyZone(x: number): 'high' | 'mid' | 'low' {
-  if (x <= 30) return 'high'
-  if (x <= 60) return 'mid'
+export type EfficiencyZone = 'high' | 'mid' | 'low'
+
+export function getEfficiencyZone(x: number): EfficiencyZone {
+  if (x <= ZONE_HIGH_END) return 'high'
+  if (x <= ZONE_MID_END)  return 'mid'
   return 'low'
 }
 
-export function pickThreeExercises(): [typeof EXERCISE_TYPES[0], typeof EXERCISE_TYPES[0], typeof EXERCISE_TYPES[0]] {
-  const shuffled = [...EXERCISE_TYPES].sort(() => Math.random() - 0.5)
-  return [shuffled[0], shuffled[1], shuffled[2]]
+/** 不重複抽 3 種運動。資料不足時丟出錯誤（由 store 捕捉並顯示錯誤畫面） */
+export function pickThreeExercises(): ExerciseTriple {
+  if (EXERCISE_TYPES.length < EXERCISES_PER_DAY) {
+    throw new Error(`運動資料只有 ${EXERCISE_TYPES.length} 筆，至少需要 ${EXERCISES_PER_DAY} 筆`)
+  }
+  const [a, b, c] = sample(EXERCISE_TYPES, EXERCISES_PER_DAY)
+  return [a, b, c]
 }
