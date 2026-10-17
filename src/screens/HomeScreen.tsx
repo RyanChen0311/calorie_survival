@@ -1,7 +1,16 @@
+import { Fragment, useState } from 'react'
 import { motion } from 'framer-motion'
-import { useGameStore, type Difficulty } from '../store/gameStore'
+import { useGameStore, ENHANCE_TABLE, type Difficulty } from '../store/gameStore'
+import { useConfigStore } from '../store/configStore'
+import { config } from '../config'
+import { gamesUntilLucky } from '../utils/enhance'
+import { sfx } from '../audio/sfx'
+import { useSfxOnMount } from '../audio/useSfxOnMount'
+import SoundToggle from '../components/SoundToggle'
 
 // ── 開場爆發粒子 ─────────────────────────────────────────
+const BURST_SFX_DELAY_MS = 50   // 對齊第一顆粒子的 delay（0.05s）
+
 const BURST = [
   { label: '+1',  angle: -80,  delay: 0.05 },
   { label: '+2',  angle: -40,  delay: 0.12 },
@@ -63,13 +72,13 @@ const FOOD_DROPS: { emoji: string; kcal: number | null; left: string; delay: num
 ]
 
 // ── 人生開局選項 ─────────────────────────────────────────
+// 金額不寫在這裡，渲染時從 config.initialMoney 讀取（遠端可調整）
 const LIFE_PATHS = [
   {
     key:      'easy' as Difficulty,
     emoji:    '💼',
     title:    '穩紮穩打',
     tagline:  '存款充裕，全力精算體態',
-    money:    5000,
     badge:    'S 級可期',
     badgeCol: 'text-yellow-400',
     bg:       'from-emerald-800/70 to-teal-950',
@@ -80,7 +89,6 @@ const LIFE_PATHS = [
     emoji:    '🎯',
     title:    '月光族逆轉',
     tagline:  '錢永遠不夠，意志力說了算',
-    money:    3000,
     badge:    '挑戰 A 級',
     badgeCol: 'text-violet-400',
     bg:       'from-violet-800/70 to-purple-950',
@@ -91,7 +99,6 @@ const LIFE_PATHS = [
     emoji:    '🎲',
     title:    '孤注一擲',
     tagline:  '幾乎一無所有，高風險高回報',
-    money:    800,
     badge:    '地獄 or 天堂',
     badgeCol: 'text-red-400',
     bg:       'from-red-800/70 to-rose-950',
@@ -108,7 +115,29 @@ const GRADES = [
 ]
 
 export default function HomeScreen() {
-  const startGame = useGameStore(s => s.startGame)
+  const startGame    = useGameStore(s => s.startGame)
+  const gamesStarted = useGameStore(s => s.gamesStarted)
+  const untilLucky   = gamesUntilLucky(gamesStarted)
+  // 訂閱載入狀態：遠端設定套用後重新渲染，金額 / 強化資訊才會是最新值
+  const configLoaded = useConfigStore(s => s.loaded)
+
+  const maxEnhance = ENHANCE_TABLE[ENHANCE_TABLE.length - 1]
+  const maxMulti   = ENHANCE_TABLE.reduce((m, e) => Math.max(m, e.multi), 0)
+
+  // 開場爆發動畫：掛載時自動播一次音效，點 💰 重播
+  const [burstKey, setBurstKey] = useState(0)
+  useSfxOnMount('burst', BURST_SFX_DELAY_MS)
+
+  const replayBurst = () => {
+    sfx.play('burst')
+    setBurstKey(k => k + 1)
+  }
+
+  const handleStart = (difficulty: Difficulty) => {
+    if (!configLoaded) return
+    sfx.play(untilLucky === 1 ? 'lucky' : 'gameStart')
+    startGame(difficulty)
+  }
 
   return (
     <motion.div
@@ -140,28 +169,40 @@ export default function HomeScreen() {
         ))}
       </div>
 
+      {/* ── 音效開關 ── */}
+      <div className="absolute top-3 right-3 z-10">
+        <SoundToggle />
+      </div>
+
       {/* ── 標題英雄區 ── */}
       <div className="relative flex flex-col items-center pt-3 pb-1">
-        {/* 爆發粒子 */}
+        {/* 爆發粒子：burstKey 改變 → 粒子與光暈重新掛載 → 動畫重播 */}
         <div className="relative flex items-center justify-center w-20 h-20">
-          {BURST.map((p, i) => (
-            <BurstParticle key={i} {...p} />
-          ))}
-          {/* 中心光暈 */}
-          <motion.div
-            initial={{ scale: 0, opacity: 0.8 }}
-            animate={{ scale: 3, opacity: 0 }}
-            transition={{ duration: 0.8, delay: 0.1 }}
-            className="absolute w-12 h-12 rounded-full bg-yellow-400/40 pointer-events-none"
-          />
-          <motion.div
-            initial={{ scale: 0.3, opacity: 0 }}
+          <Fragment key={burstKey}>
+            {BURST.map((p, i) => (
+              <BurstParticle key={i} {...p} />
+            ))}
+            {/* 中心光暈 */}
+            <motion.div
+              initial={{ scale: 0, opacity: 0.8 }}
+              animate={{ scale: 3, opacity: 0 }}
+              transition={{ duration: 0.8, delay: 0.1 }}
+              className="absolute w-12 h-12 rounded-full bg-yellow-400/40 pointer-events-none"
+            />
+          </Fragment>
+          <motion.button
+            key={burstKey}
+            // 首次：從無到有彈出；重播：從縮小狀態彈回
+            initial={burstKey === 0 ? { scale: 0.3, opacity: 0 } : { scale: 0.7, opacity: 1 }}
             animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: 'spring', stiffness: 250, delay: 0.15 }}
-            className="text-[58px] z-10"
+            transition={{ type: 'spring', stiffness: 250, delay: burstKey === 0 ? 0.15 : 0 }}
+            whileTap={{ scale: 0.85 }}
+            onClick={replayBurst}
+            aria-label="重播開場動畫"
+            className="text-[58px] z-10 leading-none select-none"
           >
             💰
-          </motion.div>
+          </motion.button>
         </div>
 
         <motion.h1
@@ -225,7 +266,7 @@ export default function HomeScreen() {
           transition={{ delay: 0.9 }}
           className="text-white/40 text-[14px] text-center mb-2.5"
         >
-          選擇你的人生開局
+          {configLoaded ? '選擇你的人生開局' : '載入遊戲設定中…'}
         </motion.p>
 
         <div className="flex flex-col gap-2.5">
@@ -235,9 +276,11 @@ export default function HomeScreen() {
               initial={{ opacity: 0, x: -24 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.95 + i * 0.1, type: 'spring', stiffness: 280 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => startGame(p.key)}
-              className={`bg-gradient-to-r ${p.bg} border ${p.border} rounded-2xl p-3.5 text-left flex items-center gap-3`}
+              whileTap={configLoaded ? { scale: 0.97 } : {}}
+              onClick={() => handleStart(p.key)}
+              disabled={!configLoaded}
+              className={`bg-gradient-to-r ${p.bg} border ${p.border} rounded-2xl p-3.5 text-left flex items-center gap-3
+                transition-opacity ${configLoaded ? '' : 'opacity-50'}`}
             >
               <div className="text-3xl shrink-0">{p.emoji}</div>
               <div className="flex-1 min-w-0">
@@ -245,7 +288,7 @@ export default function HomeScreen() {
                 <div className="text-white/50 text-[13px] mt-0.5 truncate">{p.tagline}</div>
               </div>
               <div className="text-right shrink-0">
-                <div className="text-white font-bold text-[17px]">${p.money.toLocaleString()}</div>
+                <div className="text-white font-bold text-[17px]">${(config.initialMoney[p.key] ?? 0).toLocaleString()}</div>
                 <div className={`text-[12px] font-medium ${p.badgeCol} mt-0.5`}>{p.badge}</div>
               </div>
             </motion.button>
@@ -253,16 +296,23 @@ export default function HomeScreen() {
         </div>
       </div>
 
-      {/* ── 核心玩法暗示 ── */}
+      {/* ── 核心玩法暗示（等級 / 倍數讀 ENHANCE_TABLE） ── */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 1.25 }}
         className="bg-yellow-400/8 border border-yellow-400/20 rounded-xl p-3 text-[12px] text-white/50 leading-relaxed text-center"
       >
-        💎 每日獎金可強化至 <span className="text-yellow-400 font-bold">+10</span>，爆發倍數高達
-        <span className="text-yellow-400 font-bold"> ×12</span><br />
-        運動消耗卡路里・管理體態・追求 S 級人生
+        {maxEnhance && (
+          <>
+            💎 每日獎金可強化至 <span className="text-yellow-400 font-bold">{maxEnhance.label}</span>，爆發倍數高達
+            <span className="text-yellow-400 font-bold"> ×{maxMulti}</span><br />
+          </>
+        )}
+        運動消耗卡路里・管理體態・追求 S 級人生<br />
+        <span className="text-emerald-300/80">
+          🍀 {untilLucky === 1 ? '下一局是幸運局！強化成功率提升' : `再 ${untilLucky} 局迎來幸運局`}
+        </span>
       </motion.div>
     </motion.div>
   )
